@@ -1,0 +1,185 @@
+rules_version = '2';
+service cloud.firestore {
+  function isValidIntakeCreate() {
+    return request.resource.data.keys().hasAll([
+        'fullName',
+        'phone',
+        'email',
+        'role',
+        'message',
+        'consent',
+        'source',
+        'status',
+        'createdAt',
+        'updatedAt'
+      ])
+      && request.resource.data.keys().hasOnly([
+        'fullName',
+        'phone',
+        'email',
+        'role',
+        'loanAmountRange',
+        'message',
+        'consent',
+        'source',
+        'status',
+        'createdAt',
+        'updatedAt'
+      ])
+      && request.resource.data.fullName is string
+      && request.resource.data.fullName.size() >= 2
+      && request.resource.data.fullName.size() <= 120
+      && request.resource.data.phone is string
+      && request.resource.data.phone.size() >= 8
+      && request.resource.data.phone.size() <= 24
+      && request.resource.data.email is string
+      && request.resource.data.email.size() <= 254
+      && request.resource.data.role is string
+      && request.resource.data.role in ['borrower', 'lender', 'nbfc-bank', 'other']
+      && (!('loanAmountRange' in request.resource.data)
+        || request.resource.data.loanAmountRange == null
+        || request.resource.data.loanAmountRange in ['5L_25L', '25L_1CR', '1CR_5CR', '5CR_PLUS', 'NOT_APPLICABLE'])
+      && request.resource.data.message is string
+      && request.resource.data.message.size() >= 10
+      && request.resource.data.message.size() <= 1200
+      && request.resource.data.consent == true
+      && request.resource.data.source == 'web-client'
+      && request.resource.data.status == 'new'
+      && request.resource.data.createdAt is string
+      && request.resource.data.updatedAt is string;
+  }
+
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(profileId) {
+      return isSignedIn() && request.auth.uid == profileId;
+    }
+
+    function isSuperAdmin() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/dashboard_users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/dashboard_users/$(request.auth.uid)).data.role == 'super_admin';
+    }
+
+    function isOwnerMatch(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidDashboardUserCreate(userId) {
+      return request.resource.data.keys().hasAll([
+          'uid',
+          'role',
+          'displayName',
+          'email',
+          'profileId',
+          'onboardingCompleted',
+          'registrationStep',
+          'createdAt',
+          'updatedAt'
+        ])
+        && request.resource.data.role in ['lender', 'requestor', 'super_admin']
+        && request.resource.data.displayName is string
+        && request.resource.data.displayName.size() >= 1
+        && request.resource.data.email is string
+        && request.resource.data.email.size() <= 254
+        && request.resource.data.uid == userId
+        && request.resource.data.profileId == userId
+        && request.resource.data.onboardingCompleted is bool
+        && request.resource.data.registrationStep is int
+        && request.resource.data.registrationStep >= 1
+        && request.resource.data.registrationStep <= 3
+        && request.resource.data.createdAt is string
+        && request.resource.data.updatedAt is string;
+    }
+
+    function isValidDashboardUserUpdate(userId) {
+      return request.resource.data.keys().hasAll([
+          'uid',
+          'role',
+          'displayName',
+          'email',
+          'profileId',
+          'onboardingCompleted',
+          'registrationStep',
+          'updatedAt'
+        ])
+        && request.resource.data.role == resource.data.role
+        && request.resource.data.email == resource.data.email
+        && request.resource.data.profileId == resource.data.profileId
+        && request.resource.data.uid == userId
+        && request.resource.data.displayName is string
+        && request.resource.data.displayName.size() >= 1
+        && request.resource.data.onboardingCompleted is bool
+        && request.resource.data.registrationStep is int
+        && request.resource.data.registrationStep >= 1
+        && request.resource.data.registrationStep <= 3
+        && request.resource.data.updatedAt is string;
+    }
+
+    match /intake_submissions/{submissionId} {
+      allow create: if isValidIntakeCreate();
+      allow read, update, delete: if false;
+    }
+
+    // Dashboard users collection (replaces app_users)
+    match /dashboard_users/{userId} {
+      allow read: if isOwnerMatch(userId) || isSuperAdmin();
+      allow create: if isSuperAdmin() || isOwnerMatch(userId);
+      allow update: if isSuperAdmin() || isOwnerMatch(userId);
+      allow delete: if isSuperAdmin();
+    }
+
+    match /lender_profiles/{profileId} {
+      allow read: if isOwnerMatch(profileId) || isSuperAdmin();
+      allow create: if isOwnerMatch(profileId) || isSuperAdmin();
+      allow update: if isOwnerMatch(profileId) || isSuperAdmin();
+      allow delete: if isSuperAdmin();
+    }
+
+    match /requestor_profiles/{profileId} {
+      allow read: if isOwnerMatch(profileId) || isSuperAdmin();
+      allow create: if isOwnerMatch(profileId) || isSuperAdmin();
+      allow update: if isOwnerMatch(profileId) || isSuperAdmin();
+      allow delete: if isSuperAdmin();
+    }
+
+    match /dashboard_data/{documentId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isSuperAdmin();
+    }
+
+    match /profile_documents/{profileId}/documents/{documentId} {
+      allow read: if isOwnerMatch(profileId) || isSuperAdmin();
+      allow create: if isOwnerMatch(profileId);
+      allow update: if isOwnerMatch(profileId) || isSuperAdmin();
+      allow delete: if isOwnerMatch(profileId) || isSuperAdmin();
+    }
+
+    // Legacy collections for backward compatibility with existing accounts
+    match /app_users/{userId} {
+      allow read: if isOwnerMatch(userId);
+      allow create: if false;
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    match /lender_dashboards/{profileId} {
+      allow read: if isOwnerMatch(profileId);
+      allow write: if false;
+    }
+
+    match /requestor_dashboards/{profileId} {
+      allow read: if isOwnerMatch(profileId);
+      allow write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
