@@ -61,13 +61,8 @@ async function getApp() {
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // Ensure Express sees the route we want.
-  // Without this, req.url can be different and the express matcher may not hit /health.
-  (req as any).url = "/health";
-  (req as any).originalUrl = "/health";
-
+  // Vercel preserves the original request URL in req.url for catch-all [...path] routes.
+  // Express routing works directly on that URL — no custom URL manipulation needed.
   const app = await getApp();
   return app(req as any, res as any);
 }
-
-

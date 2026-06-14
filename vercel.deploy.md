@@ -1,5 +1,10 @@
 # Deploy to Vercel (domain: credvance.in)
 
+## Architecture Overview
+
+The API runs as a single Vercel **Serverless Function** at `api/[...path].ts`.  
+**All** HTTP requests (`/api/*`, `/health`, `/metrics`) are rewritten via `vercel.json` to this catch-all handler, which boots the full Express application and lets Express handle routing internally.
+
 ## 1) Prepare environment variables on Vercel
 Add these in **Project Settings → Environment Variables**:
 - `NODE_ENV` = `production`
@@ -33,6 +38,9 @@ Create/confirm a Node start entry that runs:
 
 This repo’s API serves the built frontend from `dist/frontend`.
 So Vercel must run both build + start.
+
+⚠️  The `api/` directory is only used for Vercel Serverless Functions.  
+   The local dev command is **`npm run dev:api`** (uses `tsx` directly).
 
 ## 4) Import to Vercel
 - Create Vercel project

@@ -1,3 +1,11 @@
-{"version":2,"rewrites":[{"source":"/api/(.*)","destination":"/api/$1"},{"source":"/health","destination":"/api/health"},{"source":"/metrics","destination":"/api/metrics"},{"source":"/(.*)","destination":"/index.html"}]}
+{
+  "version": 2,
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/[...path]" },
+    { "source": "/health", "destination": "/api/[...path]" },
+    { "source": "/metrics", "destination": "/api/[...path]" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
 
 

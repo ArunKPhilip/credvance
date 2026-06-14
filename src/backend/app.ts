@@ -14,7 +14,8 @@ import type { IntakeSubmissionService } from "./application/services/intakeSubmi
 import type { MetricsRegistry } from "./observability/metricsRegistry.js";
 import { requestContextMiddleware } from "./interfaces/http/middleware/requestContextMiddleware.js";
 import { metricsMiddleware } from "./interfaces/http/middleware/metricsMiddleware.js";
-import { errorHandlerMiddleware, notFoundMiddleware } from "./interfaces/http/middleware/errorHandlerMiddleware.js";
+import { errorHandlerMiddleware } from "./interfaces/http/middleware/errorHandlerMiddleware.js";
+import { notFoundMiddleware } from "./interfaces/http/middleware/notFoundMiddleware.js";
 import { IntakeController } from "./interfaces/http/controllers/intakeController.js";
 import { createPublicRoutes } from "./interfaces/http/routes/publicRoutes.js";
 import { createAdminRoutes } from "./interfaces/http/routes/adminRoutes.js";
@@ -112,10 +113,23 @@ export function createApp(dependencies: AppDependencies): express.Express {
   if (fs.existsSync(frontendDistPath)) {
     app.use(express.static(frontendDistPath));
     app.get("*", (_request, response, next) => {
-      if (_request.path.startsWith("/api") || _request.path === "/health" || _request.path === "/metrics") {
+      const url = (String((_request.originalUrl || _request.url || "")) || "").split("?")[0];
+
+      // Prevent SPA fallback from hijacking API/metrics/health routes.
+      // In serverless environments, `_request.path` can differ from local Express routing.
+      const isApiOrHealthOrMetricsRoute =
+        (url || "").startsWith("/api/") ||
+        url === "/api" ||
+        url === "/api/health" ||
+        url === "/api/metrics" ||
+        url === "/health" ||
+        url === "/metrics";
+
+      if (isApiOrHealthOrMetricsRoute) {
         next();
         return;
       }
+
       response.sendFile(path.join(frontendDistPath, "index.html"));
     });
   }
