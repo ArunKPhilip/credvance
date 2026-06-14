@@ -63,6 +63,16 @@ async function getApp() {
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Vercel preserves the original request URL in req.url for catch-all [...path] routes.
   // Express routing works directly on that URL — no custom URL manipulation needed.
-  const app = await getApp();
-  return app(req as any, res as any);
+  try {
+    const app = await getApp();
+    return app(req as any, res as any);
+  } catch (err: any) {
+    // Graceful fallback when env vars are not configured (e.g. preview deployments)
+    res.status(500).json({
+      error: {
+        code: "SERVER_CONFIGURATION_ERROR",
+        message: err?.message ?? "Server configuration error"
+      }
+    });
+  }
 }
