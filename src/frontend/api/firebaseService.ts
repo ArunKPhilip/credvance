@@ -28,6 +28,7 @@ import {
   signInWithEmailAndPassword,
   signOut,
   updateProfile,
+  sendPasswordResetEmail,
   type UserCredential,
   type AuthError
 } from "firebase/auth";
@@ -61,6 +62,10 @@ export async function firebaseSignIn(
 
 export async function firebaseSignOut(): Promise<void> {
   await signOut(firebaseAuth);
+}
+
+export async function firebaseSendPasswordResetEmail(email: string): Promise<void> {
+  await sendPasswordResetEmail(firebaseAuth, email);
 }
 
 export function getCurrentFirebaseUser() {

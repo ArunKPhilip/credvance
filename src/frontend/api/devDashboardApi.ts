@@ -11,7 +11,8 @@ import {
   getLenderProfile,
   getRequestorProfile,
   createLenderProfile,
-  createRequestorProfile
+  createRequestorProfile,
+  firebaseSendPasswordResetEmail
 } from "./firebaseService";
 
 export async function loginToDashboard(email: string, password: string): Promise<DevDashboardSession> {
@@ -189,6 +190,10 @@ export async function updateDashboardOnboardingStatus(
     onboardingCompleted,
     registrationStep: nextRegistrationStep
   });
+}
+
+export async function sendPasswordReset(email: string): Promise<void> {
+  await firebaseSendPasswordResetEmail(email);
 }
 
 export default loginToDashboard;

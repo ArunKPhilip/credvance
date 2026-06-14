@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useState, useRef } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import {
   getLenderDashboardProfile,
   getRequestorDashboardProfile,
   loginToDashboard,
   logoutDashboardSession,
   registerDashboardAccount,
-  updateDashboardOnboardingStatus
+  updateDashboardOnboardingStatus,
+  sendPasswordReset
 } from "./api/devDashboardApi";
 import { onFirebaseAuthStateChanged, tryReadDashboardUser, tryReadLegacyAppUser } from "./api/firebaseService";
 import {
@@ -373,6 +374,9 @@ function App(): JSX.Element {
   const [dashboardAuthMode, setDashboardAuthMode] = useState<DashboardAuthMode>(() => getInitialRouteState().authMode);
   const [signInForm, setSignInForm] = useState<DashboardSignInFormState>(emptyDashboardSignInForm);
   const [signUpForm, setSignUpForm] = useState<DashboardSignUpFormState>(emptyDashboardSignUpForm);
+  const [signupStep, setSignupStep] = useState<number>(1);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showScrollTop, setShowScrollTop] = useState(false);
   const [isDashboardAuthSubmitting, setIsDashboardAuthSubmitting] = useState(false);
   const [devAuthError, setDevAuthError] = useState("");
   const [devSession, setDevSession] = useState<DevDashboardSession | null>(null);
@@ -432,6 +436,14 @@ function App(): JSX.Element {
       window.clearTimeout(timeoutHandle);
     };
   }, [toastMessage]);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setShowScrollTop(window.scrollY > 300);
+    };
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
 
   const mobileNavigationStyle = useMemo(
     () => ({
@@ -1185,53 +1197,44 @@ function App(): JSX.Element {
     }
   };
 
+  const handleForgotPassword = async (): Promise<void> => {
+    if (!signInForm.email.trim()) {
+      setDevAuthError("Please enter your email address first.");
+      return;
+    }
+    setDevAuthError("");
+    setIsDashboardAuthSubmitting(true);
+    try {
+      await sendPasswordReset(signInForm.email.trim());
+      showToast("Password reset email sent! Check your inbox.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to send reset email.";
+      setDevAuthError(message);
+    } finally {
+      setIsDashboardAuthSubmitting(false);
+    }
+  };
+
+  const validateSignupStep = (step: number): boolean => {
+    setDevAuthError("");
+    if (step === 1) {
+      if (!signUpForm.displayName.trim() || !signUpForm.organizationName.trim() || !signUpForm.phone.trim() || !signUpForm.city.trim() || !signUpForm.country.trim() || !signUpForm.email.trim()) {
+        setDevAuthError("Please fill all required fields in this step.");
+        return false;
+      }
+    } else if (step === 2) {
+      if (!signUpForm.pan.trim() || (signUpForm.role === "requestor" && (!signUpForm.sector.trim() || !signUpForm.requestedAmount.trim()))) {
+        setDevAuthError("Please fill all required fields in this step.");
+        return false;
+      }
+    }
+    return true;
+  };
+
   const submitDashboardSignUp = async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
 
-    if (!signUpForm.displayName.trim()) {
-      setDevAuthError("Contact person name is required.");
-      return;
-    }
-
-    if (!signUpForm.organizationName.trim()) {
-      setDevAuthError("Organization name is required.");
-      return;
-    }
-
-    if (!signUpForm.phone.trim()) {
-      setDevAuthError("Phone number is required.");
-      return;
-    }
-
-    if (!signUpForm.city.trim()) {
-      setDevAuthError("City is required.");
-      return;
-    }
-
-    if (!signUpForm.country.trim()) {
-      setDevAuthError("Country is required.");
-      return;
-    }
-
-    if (!signUpForm.pan.trim()) {
-      setDevAuthError("PAN is required.");
-      return;
-    }
-
-    if (!signUpForm.sector.trim()) {
-      setDevAuthError("Sector is required for borrower registration.");
-      return;
-    }
-
-    if (!signUpForm.requestedAmount.trim()) {
-      setDevAuthError("Requested amount is required for borrower registration.");
-      return;
-    }
-
-    if (!signUpForm.email.trim()) {
-      setDevAuthError("Email is required.");
-      return;
-    }
+    if (!validateSignupStep(1) || !validateSignupStep(2)) return;
 
     if (signUpForm.password.length < 8) {
       setDevAuthError("Password must be at least 8 characters long.");
@@ -1253,7 +1256,7 @@ function App(): JSX.Element {
 
     try {
       const session = await registerDashboardAccount({
-        role: "requestor",
+        role: signUpForm.role,
         displayName: signUpForm.displayName,
         organizationName: signUpForm.organizationName,
         phone: signUpForm.phone,
@@ -1281,8 +1284,9 @@ function App(): JSX.Element {
       setContactSectionView("account");
       setWorkspaceSectionAndRoute("documents", { replace: true });
       await hydrateDashboardSession(session);
-      setSignInForm({ email: signUpForm.email, password: "", accountType: "requestor" });
+      setSignInForm({ email: signUpForm.email, password: "", accountType: signUpForm.role });
       setSignUpForm(emptyDashboardSignUpForm);
+      setSignupStep(1);
       showToast("Account created. Complete registration section 2 by uploading your required documents.");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to create your account right now.";
@@ -2582,6 +2586,7 @@ function App(): JSX.Element {
                       >
                         <option value="">Select your role</option>
                         <option value="borrower">Business Owner / Borrower</option>
+                        <option value="lender">Lender / Investor</option>
                         <option value="nbfc-bank">NBFC / Bank</option>
                         <option value="other">Other</option>
                       </select>
@@ -2760,17 +2765,29 @@ function App(): JSX.Element {
                       required
                     />
                     <label htmlFor="signin-password">Password</label>
-                    <input
-                      id="signin-password"
-                      className="dev-input"
-                      type="password"
-                      placeholder="Enter your password"
-                      value={signInForm.password}
-                      onChange={(event) =>
-                        setSignInForm((currentState) => ({ ...currentState, password: event.target.value }))
-                      }
-                      required
-                    />
+                    <div className="password-input-wrap" style={{ position: "relative" }}>
+                      <input
+                        id="signin-password"
+                        className="dev-input"
+                        type={showPassword ? "text" : "password"}
+                        placeholder="Enter your password"
+                        value={signInForm.password}
+                        onChange={(event) =>
+                          setSignInForm((currentState) => ({ ...currentState, password: event.target.value }))
+                        }
+                        required
+                      />
+                      <button 
+                        type="button" 
+                        onClick={() => setShowPassword(!showPassword)}
+                        style={{ position: "absolute", right: "10px", top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", opacity: 0.6 }}
+                      >
+                        {showPassword ? "Hide" : "Show"}
+                      </button>
+                    </div>
+                    <div style={{ textAlign: "right", marginTop: "4px", marginBottom: "16px" }}>
+                      <button type="button" onClick={handleForgotPassword} style={{ background: "none", border: "none", color: "var(--red)", fontSize: "0.8rem", cursor: "pointer", fontWeight: 600 }}>Forgot Password?</button>
+                    </div>
                     <div className="dev-actions">
                       <button className="btn-fill" type="submit" disabled={isDashboardAuthSubmitting}>
                         {isDashboardAuthSubmitting ? "Signing In..." : "Sign In"}
@@ -2778,267 +2795,381 @@ function App(): JSX.Element {
                     </div>
                   </form>
                 ) : (
-                  <form className="dev-login-form" onSubmit={submitDashboardSignUp} noValidate>
-                    <div className="auth-grid">
-                      <div>
-                        <label htmlFor="signup-name">Contact Person</label>
-                        <input
-                          id="signup-name"
-                          className="dev-input"
-                          type="text"
-                          placeholder="Authorized contact name"
-                          value={signUpForm.displayName}
-                          onChange={(event) =>
-                            setSignUpForm((currentState) => ({ ...currentState, displayName: event.target.value }))
-                          }
-                          required
-                        />
-                      </div>
-
-                      <div>
-                        <label htmlFor="signup-org">Business Name</label>
-                        <input
-                          id="signup-org"
-                          className="dev-input"
-                          type="text"
-                          placeholder="ABC Ventures"
-                          value={signUpForm.organizationName}
-                          onChange={(event) =>
-                            setSignUpForm((currentState) => ({
-                              ...currentState,
-                              organizationName: event.target.value
-                            }))
-                          }
-                          required
-                        />
-                      </div>
-
-                      <div>
-                        <label htmlFor="signup-email">Email</label>
-                        <input
-                          id="signup-email"
-                          className="dev-input"
-                          type="email"
-                          placeholder="name@company.com"
-                          value={signUpForm.email}
-                          onChange={(event) =>
-                            setSignUpForm((currentState) => ({ ...currentState, email: event.target.value }))
-                          }
-                          required
-                        />
-                      </div>
-
-                      <div>
-                        <label htmlFor="signup-phone">Phone Number</label>
-                        <input
-                          id="signup-phone"
-                          className="dev-input"
-                          type="tel"
-                          placeholder="+91-XXXXXXXXXX"
-                          value={signUpForm.phone}
-                          onChange={(event) =>
-                            setSignUpForm((currentState) => ({ ...currentState, phone: event.target.value }))
-                          }
-                          required
-                        />
-                      </div>
-
-                      <div>
-                        <label htmlFor="signup-city">City</label>
-                        <input
-                          id="signup-city"
-                          className="dev-input"
-                          type="text"
-                          placeholder="City"
-                          value={signUpForm.city}
-                          onChange={(event) =>
-                            setSignUpForm((currentState) => ({ ...currentState, city: event.target.value }))
-                          }
-                          required
-                        />
-                      </div>
-
-                      <div>
-                        <label htmlFor="signup-state">State</label>
-                        <input
-                          id="signup-state"
-                          className="dev-input"
-                          type="text"
-                          placeholder="State"
-                          value={signUpForm.state}
-                          onChange={(event) =>
-                            setSignUpForm((currentState) => ({ ...currentState, state: event.target.value }))
-                          }
-                        />
-                      </div>
-
-                      <div>
-                        <label htmlFor="signup-country">Country</label>
-                        <input
-                          id="signup-country"
-                          className="dev-input"
-                          type="text"
-                          placeholder="Country"
-                          value={signUpForm.country}
-                          onChange={(event) =>
-                            setSignUpForm((currentState) => ({ ...currentState, country: event.target.value }))
-                          }
-                          required
-                        />
-                      </div>
-
-                      <div>
-                        <label htmlFor="signup-website">Website</label>
-                        <input
-                          id="signup-website"
-                          className="dev-input"
-                          type="url"
-                          placeholder="https://example.com"
-                          value={signUpForm.website}
-                          onChange={(event) =>
-                            setSignUpForm((currentState) => ({ ...currentState, website: event.target.value }))
-                          }
-                        />
-                      </div>
-
-                      <div>
-                        <label htmlFor="signup-pan">PAN</label>
-                        <input
-                          id="signup-pan"
-                          className="dev-input"
-                          type="text"
-                          placeholder="ABCDE1234F"
-                          value={signUpForm.pan}
-                          onChange={(event) =>
-                            setSignUpForm((currentState) => ({ ...currentState, pan: event.target.value.toUpperCase() }))
-                          }
-                          required
-                        />
-                      </div>
-
-                      <div>
-                        <label htmlFor="signup-gst">GST Number</label>
-                        <input
-                          id="signup-gst"
-                          className="dev-input"
-                          type="text"
-                          placeholder="GST Number"
-                          value={signUpForm.gstNumber}
-                          onChange={(event) =>
-                            setSignUpForm((currentState) => ({ ...currentState, gstNumber: event.target.value.toUpperCase() }))
-                          }
-                        />
-                      </div>
-
-                      <div>
-                        <label htmlFor="signup-years">Years in Operation</label>
-                        <input
-                          id="signup-years"
-                          className="dev-input"
-                          type="text"
-                          placeholder="e.g. 4"
-                          value={signUpForm.yearsInOperation}
-                          onChange={(event) =>
-                            setSignUpForm((currentState) => ({ ...currentState, yearsInOperation: event.target.value }))
-                          }
-                        />
-                      </div>
-
-                      <div>
-                        <label htmlFor="signup-sector">Business Sector</label>
-                        <input
-                          id="signup-sector"
-                          className="dev-input"
-                          type="text"
-                          placeholder="e.g. Logistics"
-                          value={signUpForm.sector}
-                          onChange={(event) =>
-                            setSignUpForm((currentState) => ({ ...currentState, sector: event.target.value }))
-                          }
-                          required
-                        />
-                      </div>
-
-                      <div>
-                        <label htmlFor="signup-stage">Business Stage</label>
-                        <input
-                          id="signup-stage"
-                          className="dev-input"
-                          type="text"
-                          placeholder="e.g. Growth"
-                          value={signUpForm.stage}
-                          onChange={(event) =>
-                            setSignUpForm((currentState) => ({ ...currentState, stage: event.target.value }))
-                          }
-                        />
-                      </div>
-
-                      <div>
-                        <label htmlFor="signup-requested-amount">Requested Amount</label>
-                        <input
-                          id="signup-requested-amount"
-                          className="dev-input"
-                          type="text"
-                          placeholder="e.g. 2Cr"
-                          value={signUpForm.requestedAmount}
-                          onChange={(event) =>
-                            setSignUpForm((currentState) => ({ ...currentState, requestedAmount: event.target.value }))
-                          }
-                          required
-                        />
-                      </div>
-
-                      <div>
-                        <label htmlFor="signup-monthly-revenue">Monthly Revenue</label>
-                        <input
-                          id="signup-monthly-revenue"
-                          className="dev-input"
-                          type="text"
-                          placeholder="e.g. 45L"
-                          value={signUpForm.monthlyRevenue}
-                          onChange={(event) =>
-                            setSignUpForm((currentState) => ({ ...currentState, monthlyRevenue: event.target.value }))
-                          }
-                        />
-                      </div>
-
-                      <div>
-                        <label htmlFor="signup-password">Password</label>
-                        <input
-                          id="signup-password"
-                          className="dev-input"
-                          type="password"
-                          placeholder="Minimum 8 characters"
-                          value={signUpForm.password}
-                          onChange={(event) =>
-                            setSignUpForm((currentState) => ({ ...currentState, password: event.target.value }))
-                          }
-                          required
-                        />
-                      </div>
-
-                      <div>
-                        <label htmlFor="signup-confirm-password">Confirm Password</label>
-                        <input
-                          id="signup-confirm-password"
-                          className="dev-input"
-                          type="password"
-                          placeholder="Re-enter password"
-                          value={signUpForm.confirmPassword}
-                          onChange={(event) =>
-                            setSignUpForm((currentState) => ({ ...currentState, confirmPassword: event.target.value }))
-                          }
-                          required
-                        />
-                      </div>
+                  <form className="dev-login-form signup-wizard" onSubmit={submitDashboardSignUp} noValidate>
+                    {/* Step Indicators */}
+                    <div className="wizard-steps" style={{ display: "flex", justifyContent: "center", gap: "10px", marginBottom: "24px" }}>
+                      {[1, 2, 3].map((step) => (
+                        <div key={step} style={{ 
+                          width: "30px", height: "30px", borderRadius: "50%", 
+                          background: signupStep >= step ? "var(--red)" : "var(--border)", 
+                          color: signupStep >= step ? "#fff" : "var(--muted)",
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          fontWeight: "bold", fontSize: "0.8rem"
+                        }}>
+                          {step}
+                        </div>
+                      ))}
                     </div>
 
-                    <p className="dev-note">Section 2 document upload opens right after account creation.</p>
+                    {signupStep === 1 && (
+                      <div className="auth-grid step-pane">
+                        <div style={{ gridColumn: "1 / -1", marginBottom: "8px" }}>
+                          <h4 style={{ margin: 0, color: "var(--dark)" }}>Personal & Organization Info</h4>
+                          <p style={{ fontSize: "0.8rem", color: "var(--muted)", margin: "4px 0 0 0" }}>Step 1 of 3</p>
+                        </div>
+                        <div>
+                          <label htmlFor="signup-role">I want to register as a</label>
+                          <select
+                            id="signup-role"
+                            className="dev-input"
+                            value={signUpForm.role}
+                            onChange={(event) =>
+                              setSignUpForm((currentState) => ({ ...currentState, role: event.target.value as "requestor" | "lender" }))
+                            }
+                            required
+                          >
+                            <option value="requestor">Borrower / Business</option>
+                            <option value="lender">Lender / Investor</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label htmlFor="signup-name">Contact Person</label>
+                          <input
+                            id="signup-name"
+                            className="dev-input"
+                            type="text"
+                            placeholder="Authorized contact name"
+                            value={signUpForm.displayName}
+                            onChange={(event) =>
+                              setSignUpForm((currentState) => ({ ...currentState, displayName: event.target.value }))
+                            }
+                            required
+                          />
+                        </div>
 
-                    <div className="dev-actions">
-                      <button className="btn-fill" type="submit" disabled={isDashboardAuthSubmitting}>
-                        {isDashboardAuthSubmitting ? "Creating Account..." : "Create Account"}
-                      </button>
+                        <div>
+                          <label htmlFor="signup-org">Business Name</label>
+                          <input
+                            id="signup-org"
+                            className="dev-input"
+                            type="text"
+                            placeholder="ABC Ventures"
+                            value={signUpForm.organizationName}
+                            onChange={(event) =>
+                              setSignUpForm((currentState) => ({
+                                ...currentState,
+                                organizationName: event.target.value
+                              }))
+                            }
+                            required
+                          />
+                        </div>
+
+                        <div>
+                          <label htmlFor="signup-email">Email</label>
+                          <input
+                            id="signup-email"
+                            className="dev-input"
+                            type="email"
+                            placeholder="name@company.com"
+                            value={signUpForm.email}
+                            onChange={(event) =>
+                              setSignUpForm((currentState) => ({ ...currentState, email: event.target.value }))
+                            }
+                            required
+                          />
+                        </div>
+
+                        <div>
+                          <label htmlFor="signup-phone">Phone Number</label>
+                          <input
+                            id="signup-phone"
+                            className="dev-input"
+                            type="tel"
+                            placeholder="+91-XXXXXXXXXX"
+                            value={signUpForm.phone}
+                            onChange={(event) =>
+                              setSignUpForm((currentState) => ({ ...currentState, phone: event.target.value }))
+                            }
+                            required
+                          />
+                        </div>
+
+                        <div>
+                          <label htmlFor="signup-city">City</label>
+                          <input
+                            id="signup-city"
+                            className="dev-input"
+                            type="text"
+                            placeholder="City"
+                            value={signUpForm.city}
+                            onChange={(event) =>
+                              setSignUpForm((currentState) => ({ ...currentState, city: event.target.value }))
+                            }
+                            required
+                          />
+                        </div>
+
+                        <div>
+                          <label htmlFor="signup-state">State</label>
+                          <input
+                            id="signup-state"
+                            className="dev-input"
+                            type="text"
+                            placeholder="State"
+                            value={signUpForm.state}
+                            onChange={(event) =>
+                              setSignUpForm((currentState) => ({ ...currentState, state: event.target.value }))
+                            }
+                          />
+                        </div>
+
+                        <div>
+                          <label htmlFor="signup-country">Country</label>
+                          <input
+                            id="signup-country"
+                            className="dev-input"
+                            type="text"
+                            placeholder="Country"
+                            value={signUpForm.country}
+                            onChange={(event) =>
+                              setSignUpForm((currentState) => ({ ...currentState, country: event.target.value }))
+                            }
+                            required
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {signupStep === 2 && (
+                      <div className="auth-grid step-pane">
+                        <div style={{ gridColumn: "1 / -1", marginBottom: "8px" }}>
+                          <h4 style={{ margin: 0, color: "var(--dark)" }}>Business Details</h4>
+                          <p style={{ fontSize: "0.8rem", color: "var(--muted)", margin: "4px 0 0 0" }}>Step 2 of 3</p>
+                        </div>
+                        <div>
+                          <label htmlFor="signup-pan">PAN</label>
+                          <input
+                            id="signup-pan"
+                            className="dev-input"
+                            type="text"
+                            placeholder="ABCDE1234F"
+                            value={signUpForm.pan}
+                            onChange={(event) =>
+                              setSignUpForm((currentState) => ({ ...currentState, pan: event.target.value.toUpperCase() }))
+                            }
+                            required
+                          />
+                        </div>
+
+                        <div>
+                          <label htmlFor="signup-gst">GST Number</label>
+                          <input
+                            id="signup-gst"
+                            className="dev-input"
+                            type="text"
+                            placeholder="GST Number"
+                            value={signUpForm.gstNumber}
+                            onChange={(event) =>
+                              setSignUpForm((currentState) => ({ ...currentState, gstNumber: event.target.value.toUpperCase() }))
+                            }
+                          />
+                        </div>
+
+                        <div>
+                          <label htmlFor="signup-website">Website</label>
+                          <input
+                            id="signup-website"
+                            className="dev-input"
+                            type="url"
+                            placeholder="https://example.com"
+                            value={signUpForm.website}
+                            onChange={(event) =>
+                              setSignUpForm((currentState) => ({ ...currentState, website: event.target.value }))
+                            }
+                          />
+                        </div>
+
+                        <div>
+                          <label htmlFor="signup-years">Years in Operation</label>
+                          <input
+                            id="signup-years"
+                            className="dev-input"
+                            type="text"
+                            placeholder="e.g. 4"
+                            value={signUpForm.yearsInOperation}
+                            onChange={(event) =>
+                              setSignUpForm((currentState) => ({ ...currentState, yearsInOperation: event.target.value }))
+                            }
+                          />
+                        </div>
+
+                        {signUpForm.role === "requestor" ? (
+                          <>
+                            <div>
+                              <label htmlFor="signup-sector">Business Sector</label>
+                              <input
+                                id="signup-sector"
+                                className="dev-input"
+                                type="text"
+                                placeholder="e.g. Logistics"
+                                value={signUpForm.sector}
+                                onChange={(event) =>
+                                  setSignUpForm((currentState) => ({ ...currentState, sector: event.target.value }))
+                                }
+                                required
+                              />
+                            </div>
+
+                            <div>
+                              <label htmlFor="signup-stage">Business Stage</label>
+                              <input
+                                id="signup-stage"
+                                className="dev-input"
+                                type="text"
+                                placeholder="e.g. Growth"
+                                value={signUpForm.stage}
+                                onChange={(event) =>
+                                  setSignUpForm((currentState) => ({ ...currentState, stage: event.target.value }))
+                                }
+                              />
+                            </div>
+
+                            <div>
+                              <label htmlFor="signup-requested-amount">Requested Amount</label>
+                              <input
+                                id="signup-requested-amount"
+                                className="dev-input"
+                                type="text"
+                                placeholder="e.g. 2Cr"
+                                value={signUpForm.requestedAmount}
+                                onChange={(event) =>
+                                  setSignUpForm((currentState) => ({ ...currentState, requestedAmount: event.target.value }))
+                                }
+                                required
+                              />
+                            </div>
+
+                            <div>
+                              <label htmlFor="signup-monthly-revenue">Monthly Revenue</label>
+                              <input
+                                id="signup-monthly-revenue"
+                                className="dev-input"
+                                type="text"
+                                placeholder="e.g. 45L"
+                                value={signUpForm.monthlyRevenue}
+                                onChange={(event) =>
+                                  setSignUpForm((currentState) => ({ ...currentState, monthlyRevenue: event.target.value }))
+                                }
+                              />
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div>
+                              <label htmlFor="signup-min-ticket">Min Ticket Size</label>
+                              <input
+                                id="signup-min-ticket"
+                                className="dev-input"
+                                type="text"
+                                placeholder="e.g. 25L"
+                                value={signUpForm.minTicket}
+                                onChange={(event) =>
+                                  setSignUpForm((currentState) => ({ ...currentState, minTicket: event.target.value }))
+                                }
+                              />
+                            </div>
+                            <div>
+                              <label htmlFor="signup-max-ticket">Max Ticket Size</label>
+                              <input
+                                id="signup-max-ticket"
+                                className="dev-input"
+                                type="text"
+                                placeholder="e.g. 5Cr"
+                                value={signUpForm.maxTicket}
+                                onChange={(event) =>
+                                  setSignUpForm((currentState) => ({ ...currentState, maxTicket: event.target.value }))
+                                }
+                              />
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
+
+                    {signupStep === 3 && (
+                      <div className="auth-grid step-pane">
+                        <div style={{ gridColumn: "1 / -1", marginBottom: "8px" }}>
+                          <h4 style={{ margin: 0, color: "var(--dark)" }}>Security</h4>
+                          <p style={{ fontSize: "0.8rem", color: "var(--muted)", margin: "4px 0 0 0" }}>Step 3 of 3</p>
+                        </div>
+                        <div style={{ gridColumn: "1 / -1" }}>
+                          <label htmlFor="signup-password">Password</label>
+                          <div className="password-input-wrap" style={{ position: "relative" }}>
+                            <input
+                              id="signup-password"
+                              className="dev-input"
+                              type={showPassword ? "text" : "password"}
+                              placeholder="Minimum 8 characters"
+                              value={signUpForm.password}
+                              onChange={(event) =>
+                                setSignUpForm((currentState) => ({ ...currentState, password: event.target.value }))
+                              }
+                              required
+                            />
+                            <button 
+                              type="button" 
+                              onClick={() => setShowPassword(!showPassword)}
+                              style={{ position: "absolute", right: "10px", top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", opacity: 0.6 }}
+                            >
+                              {showPassword ? "Hide" : "Show"}
+                            </button>
+                          </div>
+                        </div>
+
+                        <div style={{ gridColumn: "1 / -1" }}>
+                          <label htmlFor="signup-confirm-password">Confirm Password</label>
+                          <div className="password-input-wrap" style={{ position: "relative" }}>
+                            <input
+                              id="signup-confirm-password"
+                              className="dev-input"
+                              type={showPassword ? "text" : "password"}
+                              placeholder="Re-enter password"
+                              value={signUpForm.confirmPassword}
+                              onChange={(event) =>
+                                setSignUpForm((currentState) => ({ ...currentState, confirmPassword: event.target.value }))
+                              }
+                              required
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    <p className="dev-note" style={{ marginTop: "16px" }}>Section 2 document upload opens right after account creation.</p>
+
+                    <div className="dev-actions wizard-actions" style={{ display: "flex", gap: "12px", marginTop: "24px" }}>
+                      {signupStep > 1 && (
+                        <button className="btn-outline" type="button" onClick={() => setSignupStep(s => s - 1)} disabled={isDashboardAuthSubmitting}>
+                          Back
+                        </button>
+                      )}
+                      
+                      {signupStep < 3 ? (
+                        <button 
+                          className="btn-fill" 
+                          type="button" 
+                          onClick={() => {
+                            if (validateSignupStep(signupStep)) setSignupStep(s => s + 1);
+                          }}
+                        >
+                          Next Step
+                        </button>
+                      ) : (
+                        <button className="btn-fill" type="submit" disabled={isDashboardAuthSubmitting}>
+                          {isDashboardAuthSubmitting ? "Creating Account..." : "Create Account"}
+                        </button>
+                      )}
                     </div>
                   </form>
                 )}
@@ -4436,7 +4567,7 @@ function App(): JSX.Element {
               </div>
             </div>
             <div className="footer-bottom">
-              <p>© 2024 CREDVANCE. All rights reserved. Kerala, India.</p>
+              <p>© 2025 CREDVANCE. All rights reserved. Kerala, India.</p>
               <div className="footer-legal">
                 <a onClick={() => showPage("about")}>Privacy Policy</a>
                 <a onClick={() => showPage("about")}>Terms of Use</a>
@@ -4448,6 +4579,34 @@ function App(): JSX.Element {
       ) : null}
 
       <div className={`toast ${toastMessage ? "show" : ""}`}>{toastMessage}</div>
+
+      {showScrollTop && (
+        <button
+          onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+          style={{
+            position: "fixed",
+            bottom: "30px",
+            right: "30px",
+            width: "44px",
+            height: "44px",
+            borderRadius: "50%",
+            background: "var(--red)",
+            color: "#fff",
+            border: "none",
+            boxShadow: "0 4px 12px rgba(200, 16, 46, 0.3)",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: "1.2rem",
+            zIndex: 990,
+            transition: "all 0.2s"
+          }}
+          title="Scroll to Top"
+        >
+          ↑
+        </button>
+      )}
     </>
   );
 }
