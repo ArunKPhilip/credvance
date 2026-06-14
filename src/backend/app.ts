@@ -107,6 +107,7 @@ export function createApp(dependencies: AppDependencies): express.Express {
   app.use(createProfileDocumentRoutes(firestore as any, firebaseAuthClient as any, firebaseStorageClient as any, environment));
   app.use(createAdminRoutes(intakeController, environment));
 
+
   const frontendDistPath = path.resolve(currentDirectoryPath, "../../dist/frontend");
   if (fs.existsSync(frontendDistPath)) {
     app.use(express.static(frontendDistPath));

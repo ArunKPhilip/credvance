@@ -6,3 +6,5 @@ secrets/
 *.log
 /.cache
 /.vite
+.vercel
+.env*
