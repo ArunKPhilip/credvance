@@ -106,9 +106,8 @@ export function createApp(dependencies: AppDependencies): express.Express {
   const intakeController = new IntakeController(intakeSubmissionService);
   app.use(createPublicRoutes(intakeController, metrics));
   app.use(createProfileDocumentRoutes(firestore as any, firebaseAuthClient as any, firebaseStorageClient as any, environment));
-  app.use(createAdminRoutes(intakeController, environment));
 
-
+  // Serve frontend BEFORE admin routes to prevent admin auth middleware from blocking /
   const frontendDistPath = path.resolve(currentDirectoryPath, "../../dist/frontend");
   if (fs.existsSync(frontendDistPath)) {
     app.use(express.static(frontendDistPath));
@@ -133,6 +132,8 @@ export function createApp(dependencies: AppDependencies): express.Express {
       response.sendFile(path.join(frontendDistPath, "index.html"));
     });
   }
+
+  app.use(createAdminRoutes(intakeController, environment));
 
   app.use(notFoundMiddleware);
   app.use(errorHandlerMiddleware(logger));

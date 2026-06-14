@@ -1,8 +1,24 @@
 {
   "version": 2,
-  "rewrites": [
-    { "source": "/(.*)", "destination": "/api/[...path]" }
-  ]
+  "builds": [
+    {
+      "src": "api/[...path].ts",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "dist/frontend/**",
+      "use": "@vercel/static"
+    }
+  ],
+  "routes": [
+    { "src": "/api/(.*)", "dest": "/api/[...path]" },
+    { "src": "/api", "dest": "/api/[...path]" },
+    { "src": "/health", "dest": "/api/[...path]" },
+    { "src": "/metrics", "dest": "/api/[...path]" },
+    { "src": "/(.*)\\.(.{2,6})$", "dest": "/dist/frontend/$1.$2" },
+    { "src": "/(.*)", "dest": "/dist/frontend/index.html" }
+  ],
+  "cleanUrls": true
 }
 
 
