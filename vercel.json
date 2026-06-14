@@ -1,0 +1,17 @@
+{
+  "version": 2,
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/$1" },
+    { "source": "/health", "destination": "/health" },
+    { "source": "/metrics", "destination": "/metrics" },
+
+    { "source": "/assets/:path*", "destination": "/assets/:path*" },
+    { "source": "/favicon.ico", "destination": "/favicon.ico" },
+    { "source": "/static/:path*", "destination": "/static/:path*" },
+
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
+
+
+
