@@ -61,9 +61,34 @@ async function getApp() {
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // Vercel preserves the original request URL in req.url for catch-all [...path] routes.
-  // Express routing works directly on that URL — no custom URL manipulation needed.
   try {
+    const pathParam = req.query.path;
+    let resolvedPath = "";
+    if (Array.isArray(pathParam)) {
+      resolvedPath = pathParam.join("/");
+    } else if (typeof pathParam === "string") {
+      resolvedPath = pathParam;
+    }
+
+    // Reconstruct req.url with resolved path and original query parameters
+    const urlObj = new URL(req.url || "", "http://localhost");
+    urlObj.searchParams.delete("path");
+    const searchString = urlObj.search;
+
+    let targetUrl = "/api";
+    if (resolvedPath === "health") {
+      targetUrl = "/health" + searchString;
+    } else if (resolvedPath === "metrics") {
+      targetUrl = "/metrics" + searchString;
+    } else if (resolvedPath) {
+      targetUrl = "/api/" + resolvedPath + searchString;
+    } else {
+      targetUrl = "/api" + searchString;
+    }
+
+    req.url = targetUrl;
+    (req as any).originalUrl = targetUrl;
+
     const app = await getApp();
     return app(req as any, res as any);
   } catch (err: any) {

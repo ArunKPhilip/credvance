@@ -9,25 +9,6 @@ export default defineConfig({
   },
   build: {
     outDir: "dist/frontend",
-    sourcemap: true,
-    rollupOptions: {
-      output: {
-        manualChunks(id) {
-          if (!id.includes("node_modules")) {
-            return undefined;
-          }
-
-          if (id.includes("node_modules/firebase")) {
-            return "firebase";
-          }
-
-          if (id.includes("node_modules/react") || id.includes("node_modules/react-dom")) {
-            return "react-vendor";
-          }
-
-          return "vendor";
-        }
-      }
-    }
+    sourcemap: true
   }
 });

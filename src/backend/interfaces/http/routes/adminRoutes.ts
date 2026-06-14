@@ -13,15 +13,17 @@ export function createAdminRoutes(
   environment: EnvironmentConfiguration
 ): Router {
   const router = Router();
+  const requireAdminAuth = requireAdminApiKeyMiddleware(environment);
 
-  router.use(requireAdminApiKeyMiddleware(environment));
   router.get(
     "/api/v1/admin/intake/submissions",
+    requireAdminAuth,
     validateQuery(listSubmissionsQuerySchema),
     intakeController.listSubmissions
   );
   router.post(
     "/api/v1/admin/intake/submissions/:submissionId/anonymize",
+    requireAdminAuth,
     validateParams(anonymizeSubmissionParamsSchema),
     intakeController.anonymizeSubmission
   );

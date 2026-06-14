@@ -108,7 +108,9 @@ export function createApp(dependencies: AppDependencies): express.Express {
   app.use(createProfileDocumentRoutes(firestore as any, firebaseAuthClient as any, firebaseStorageClient as any, environment));
 
   // Serve frontend BEFORE admin routes to prevent admin auth middleware from blocking /
-  const frontendDistPath = path.resolve(currentDirectoryPath, "../../dist/frontend");
+  const frontendDistPath = process.env.VERCEL
+    ? path.join(process.cwd(), "dist/frontend")
+    : path.resolve(currentDirectoryPath, "../../dist/frontend");
   if (fs.existsSync(frontendDistPath)) {
     app.use(express.static(frontendDistPath));
     app.get("*", (_request, response, next) => {
